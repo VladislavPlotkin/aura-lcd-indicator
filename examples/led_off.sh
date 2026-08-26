@@ -5,7 +5,7 @@
 
 CDIR="$(cd "$(dirname "$0")" && pwd)"
 CTL="$CDIR/../aura-indicator/bin/aura-ctl"
-pad() { local s="$1"; printf "%-16s" "${s:0:16}"; }
+pad() { local s="$1"; s="${s:0:16}"; local len=${#s}; printf '%s' "$s"; local i; for ((i=len; i<16; i++)); do printf ' '; done; }
 join() { echo "$(pad "$1")$(pad "$2")"; }
 
 # Пары фраз: строка0 | строка1 (каждая ≤ 16 символов)
@@ -115,6 +115,7 @@ idx=$(( RANDOM % ${#phrases[@]} ))
 IFS='|' read -r line0 line1 <<< "${phrases[$idx]}"
 
 $CTL lcd "$(join "$line0" "$line1")"
+sleep 4   # дадим прочитать фразу (off led2 гасит и LCD)
 $CTL off led2
 
 echo "Done! (phrase #$idx: ${line0} | ${line1})"
