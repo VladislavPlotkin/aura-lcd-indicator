@@ -12,10 +12,48 @@ const (
 // ASCII 0x20-0x7F оставляет как есть.
 // Всё остальное (русские буквы, эмодзи) → пробел 0x20.
 func CharToLCDCode(char rune) byte {
+	// ASCII passthrough
 	if char >= 0x20 && char <= 0x7F {
 		return byte(char)
 	}
+
+	// Кириллица: U+0410-U+044F, U+0401/U+0451 = Ё/ё
+	if lcd, ok := cyrillicMap[char]; ok {
+		return lcd
+	}
+
 	return 0x20 // space
+}
+
+// cyrillicMap — маппинг Unicode-кодов кириллицы → LCD-коды HD44780.
+// Таблица взята из LiquidCrystalRus / ESP32 utf_recode[].
+var cyrillicMap = map[rune]byte{
+	// Заглавные А-П (U+0410..U+041F)
+	'А': 0x41, 'Б': 0xA0, 'В': 0x42, 'Г': 0xA1,
+	'Д': 0xE0, 'Е': 0x45, 'Ж': 0xA3, 'З': 0xA4,
+	'И': 0xA5, 'Й': 0xA6, 'К': 0x4B, 'Л': 0xA7,
+	'М': 0x4D, 'Н': 0x48, 'О': 0x4F, 'П': 0xA8,
+
+	// Заглавные Р-Я (U+0420..U+042F)
+	'Р': 0x50, 'С': 0x43, 'Т': 0x54, 'У': 0xA9,
+	'Ф': 0xAA, 'Х': 0x58, 'Ц': 0xE1, 'Ч': 0xAB,
+	'Ш': 0xAC, 'Щ': 0xE2, 'Ъ': 0xAD, 'Ы': 0xAE,
+	'Ь': 0x62, 'Э': 0xAF, 'Ю': 0xB0, 'Я': 0xB1,
+
+	// Строчные а-п (U+0430..U+043F)
+	'а': 0x61, 'б': 0xB2, 'в': 0xB3, 'г': 0xB4,
+	'д': 0xE3, 'е': 0x65, 'ж': 0xB6, 'з': 0xB7,
+	'и': 0xB8, 'й': 0xB9, 'к': 0xBA, 'л': 0xBB,
+	'м': 0xBC, 'н': 0xBD, 'о': 0x6F, 'п': 0xBE,
+
+	// Строчные р-я (U+0440..U+044F)
+	'р': 0x70, 'с': 0x63, 'т': 0xBF, 'у': 0x79,
+	'ф': 0xE4, 'х': 0x78, 'ц': 0xE5, 'ч': 0xC0,
+	'ш': 0xC1, 'щ': 0xE6, 'ъ': 0xC2, 'ы': 0xC3,
+	'ь': 0xC4, 'э': 0xC5, 'ю': 0xC6, 'я': 0xC7,
+
+	// Ё/ё
+	'Ё': 0xA2, 'ё': 0xB5,
 }
 
 // SplitToDisplay готовит строку для LCD: обрезает до rows*cols,

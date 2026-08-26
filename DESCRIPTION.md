@@ -27,8 +27,10 @@ aura-ctl detect                      # найти устройство
 aura-ctl status                      # статус и каналы
 aura-ctl set led2 static 0,0,255     # синий индикатор
 aura-ctl set led2 rainbow            # радуга
-aura-ctl lcd "Hello, World!"         # текст на LCD
-aura-ctl lcd-line 0 "First line"     # одна строка
+aura-ctl lcd "Hello, World!"         # текст на LCD (ASCII + кириллица)
+aura-ctl lcd "Привет мир!"           # русский текст на LCD
+aura-ctl lcd-line 0 "Первая строка"  # одна строка
+aura-ctl spinner "Загрузка"          # анимированный спиннер
 aura-ctl blink 255,0,0 5 150         # мигание
 aura-ctl off led2                    # выключить
 ```
@@ -42,7 +44,7 @@ JSON-RPC сервер по протоколу MCP (Model Context Protocol). Ис
 **Инструменты:**
 - `aura_notify_start` / `done` / `off` / `question` — цветовые уведомления
 - `aura_notify_importance` / `progress` — яркость/прогресс (0-100%)
-- `aura_lcd_print` — вывод текста на LCD (full-screen / строка)
+- `aura_lcd_print` — вывод текста на LCD (full-screen / строка), **поддержка русского языка**
 - `aura_blink` — мигание с настраиваемыми параметрами
 
 Работает через stdin/stdout, не требует Python.
@@ -80,11 +82,12 @@ Commit:  0xEC 0x3F 0x55
 
 ## LCD через LED-ленту
 
-Канал **led2** используется одновременно для индикатора (LED0) и 16×2 символьного дисплея (LED1..LED32). Каждый LED кодирует 3 символа (R, G, B каналы). Поддерживается только ASCII 0x20–0x7F.
+Канал **led2** используется одновременно для индикатора (LED0) и 16×2 символьного дисплея (LED1..LED32). Каждый LED кодирует 3 символа (R, G, B каналы). Поддерживается ASCII 0x20–0x7F и **кириллица** (А-Я, а-я, Ё, ё) через таблицу маппинга LiquidCrystalRus.
 
 - Индикатор и LCD работают независимо
 - Строки обновляются независимо
 - Состояние сохраняется и восстанавливается при перезапуске
+- Русские символы отображаются на LCD 1602A с кириллической таблицей
 
 ---
 

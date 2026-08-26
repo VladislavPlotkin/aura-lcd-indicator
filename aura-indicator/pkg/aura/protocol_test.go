@@ -239,3 +239,114 @@ func TestSendLCDTextFullRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestCharToLCDCode_ASCII(t *testing.T) {
+	tests := []struct {
+		input rune
+		want  byte
+	}{
+		{'A', 0x41},
+		{'z', 0x7A},
+		{' ', 0x20},
+		{'0', 0x30},
+		{'9', 0x39},
+		{'!', 0x21},
+	}
+	for _, tt := range tests {
+		got := CharToLCDCode(tt.input)
+		if got != tt.want {
+			t.Errorf("CharToLCDCode(%q) = 0x%02X, want 0x%02X", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestCharToLCDCode_Cyrillic(t *testing.T) {
+	tests := []struct {
+		input rune
+		want  byte
+		name  string
+	}{
+		{'А', 0x41, "А (same as A)"},
+		{'Б', 0xA0, "Б"},
+		{'В', 0x42, "В (same as B)"},
+		{'Г', 0xA1, "Г"},
+		{'Д', 0xE0, "Д"},
+		{'Е', 0x45, "Е (same as E)"},
+		{'Ж', 0xA3, "Ж"},
+		{'З', 0xA4, "З"},
+		{'И', 0xA5, "И"},
+		{'Й', 0xA6, "Й"},
+		{'К', 0x4B, "К (same as K)"},
+		{'Л', 0xA7, "Л"},
+		{'М', 0x4D, "М (same as M)"},
+		{'Н', 0x48, "Н (same as H)"},
+		{'О', 0x4F, "О (same as O)"},
+		{'П', 0xA8, "П"},
+		{'Р', 0x50, "Р (same as P)"},
+		{'С', 0x43, "С (same as C)"},
+		{'Т', 0x54, "Т (same as T)"},
+		{'У', 0xA9, "У"},
+		{'Ф', 0xAA, "Ф"},
+		{'Х', 0x58, "Х (same as X)"},
+		{'Ц', 0xE1, "Ц"},
+		{'Ч', 0xAB, "Ч"},
+		{'Ш', 0xAC, "Ш"},
+		{'Щ', 0xE2, "Щ"},
+		{'Ъ', 0xAD, "Ъ"},
+		{'Ы', 0xAE, "Ы"},
+		{'Ь', 0x62, "Ь (same as b)"},
+		{'Э', 0xAF, "Э"},
+		{'Ю', 0xB0, "Ю"},
+		{'Я', 0xB1, "Я"},
+		{'а', 0x61, "а (same as a)"},
+		{'б', 0xB2, "б"},
+		{'в', 0xB3, "в"},
+		{'г', 0xB4, "г"},
+		{'д', 0xE3, "д"},
+		{'е', 0x65, "е (same as e)"},
+		{'ж', 0xB6, "ж"},
+		{'з', 0xB7, "з"},
+		{'и', 0xB8, "и"},
+		{'й', 0xB9, "й"},
+		{'к', 0xBA, "к"},
+		{'л', 0xBB, "л"},
+		{'м', 0xBC, "м"},
+		{'н', 0xBD, "н"},
+		{'о', 0x6F, "о (same as o)"},
+		{'п', 0xBE, "п"},
+		{'р', 0x70, "р (same as p)"},
+		{'с', 0x63, "с (same as c)"},
+		{'т', 0xBF, "т"},
+		{'у', 0x79, "у (same as y)"},
+		{'ф', 0xE4, "ф"},
+		{'х', 0x78, "х (same as x)"},
+		{'ц', 0xE5, "ц"},
+		{'ч', 0xC0, "ч"},
+		{'ш', 0xC1, "ш"},
+		{'щ', 0xE6, "щ"},
+		{'ъ', 0xC2, "ъ"},
+		{'ы', 0xC3, "ы"},
+		{'ь', 0xC4, "ь"},
+		{'э', 0xC5, "э"},
+		{'ю', 0xC6, "ю"},
+		{'я', 0xC7, "я"},
+		{'Ё', 0xA2, "Ё"},
+		{'ё', 0xB5, "ё"},
+	}
+	for _, tt := range tests {
+		got := CharToLCDCode(tt.input)
+		if got != tt.want {
+			t.Errorf("CharToLCDCode(%q) %s = 0x%02X, want 0x%02X", tt.input, tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestCharToLCDCode_UnknownReturnsSpace(t *testing.T) {
+	unknowns := []rune{'€', '★', 'ä', 'ñ', '中'}
+	for _, r := range unknowns {
+		got := CharToLCDCode(r)
+		if got != 0x20 {
+			t.Errorf("CharToLCDCode(%q) = 0x%02X, want 0x20 (space)", r, got)
+		}
+	}
+}

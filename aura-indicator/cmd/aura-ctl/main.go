@@ -31,6 +31,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  lcd <text>                      Write text to LCD (full screen)\n")
 		fmt.Fprintf(os.Stderr, "  lcd-line <row> <text>           Write one line to LCD\n")
 		fmt.Fprintf(os.Stderr, "  blink <r,g,b> [times] [ms]      Blink indicator\n")
+		fmt.Fprintf(os.Stderr, "  spinner <text> [chars] [ms]     Animated spinner on LCD\n")
 		fmt.Fprintf(os.Stderr, "  author                          Show author info\n")
 		os.Exit(1)
 	}
@@ -55,6 +56,8 @@ func main() {
 		cmdLCDLine(args)
 	case "blink":
 		cmdBlink(args)
+	case "spinner":
+		cmdSpinner(args)
 	case "author":
 		cmdAuthor()
 	default:
@@ -262,6 +265,55 @@ func cmdBlink(args []string) {
 		if i < times-1 {
 			time.Sleep(time.Duration(interval) * time.Millisecond)
 		}
+	}
+}
+
+// cmdSpinner — анимированный спиннер на LCD.
+// Использование: aura-ctl spinner <текст> [символы] [мсек]
+//   text    — текст справа от спиннера
+//   chars   — символы спиннера (по умолчанию "/|\-")
+//   ms      — задержка между кадрами (по умолчанию 200)
+func cmdSpinner(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: aura-ctl spinner <text> [chars] [ms]\n")
+		os.Exit(1)
+	}
+
+	text := args[0]
+	spinnerChars := "/|\\-"
+	delay := 200
+
+	if len(args) > 1 {
+		spinnerChars = args[1]
+	}
+	if len(args) > 2 {
+		if ms, err := strconv.Atoi(args[2]); err == nil && ms > 0 {
+			delay = ms
+		}
+	}
+
+	runes := []rune(spinnerChars)
+	if len(runes) == 0 {
+		spinnerChars = "/|\\-"
+		runes = []rune(spinnerChars)
+	}
+
+	// Паддим текст до 15 символов (1 символ — спиннер)
+	textRunes := []rune(text)
+	if len(textRunes) > 15 {
+		textRunes = textRunes[:15]
+	}
+	padded := make([]rune, 15)
+	copy(padded, textRunes)
+	for i := len(textRunes); i < 15; i++ {
+		padded[i] = ' '
+	}
+
+	for i := 0; ; i++ {
+		ch := runes[i%len(runes)]
+		line := string(ch) + string(padded)
+		aura.SendLCDText(line, 0, devicePath)
+		time.Sleep(time.Duration(delay) * time.Millisecond)
 	}
 }
 
