@@ -9,7 +9,7 @@ join() { echo "$(pad "$1")$(pad "$2")"; }
 
 echo "=== Пульсация ==="
 
-$CTL lcd "$(join "Pulsatsiya" "8 tsiklov")"
+$CTL lcd "$(join "Пульсация" "8 циклов")"
 
 # Красный пульс
 echo "  Красный..."
@@ -56,5 +56,5 @@ for i in $(seq 255 -5 0); do
 done
 
 $CTL off led2
-$CTL lcd "$(join "Gotovo!" "Pulsatsiya end")"
+$CTL lcd "$(join "Готово!" "Конец")"
 echo "Пульсация завершена!"

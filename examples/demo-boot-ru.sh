@@ -13,7 +13,7 @@ $CTL lcd "$(join "AURA RGB v2" "Загрузка...")"
 $CTL set led2 static 0,0,255
 sleep 2
 
-$CTL lcd "$(join "Sistema gotova" "Gotov k rabote")"
+$CTL lcd "$(join "Система готова" "Готов к работе")"
 $CTL blink 0,255,0 3 200
 sleep 1
 
@@ -23,7 +23,7 @@ for color in "255,0,0" "0,255,0" "0,0,255" "255,255,255"; do
     sleep 0.5
 done
 
-$CTL lcd "$(join "Vse ok!" "Pognaaaali!")"
+$CTL lcd "$(join "Всё ок!" "Погнали!")"
 $CTL set led2 static 0,255,0
 sleep 1
 
