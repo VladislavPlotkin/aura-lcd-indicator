@@ -110,7 +110,7 @@ static void lcd_write(uint8_t val, bool is_data) {
 // 2 = стр.2 (кириллическая A02: кириллица в 0xA0-0xE6)
 // Можно переключать на лету по Serial: команда P<n> (например P2).
 #ifndef LCD_CGROM_PAGE
-#define LCD_CGROM_PAGE 0
+#define LCD_CGROM_PAGE 2
 #endif
 
 static void lcd_init(void) {
