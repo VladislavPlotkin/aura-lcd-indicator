@@ -39,23 +39,43 @@
 #include <string.h>
 
 // ============================================================================
-// Конфигурация
+// Конфигурация — пины для ESP32 / ESP32-C3
 // ============================================================================
 
-#define AURA_PIN    16
-#define TX_PIN      17
-#define LED_PIN     2        // встроенный LED (ESP32-DevKitC синий), активный HIGH
-#define EXT_LED_PIN 15       // внешний индикаторный LED (красный), активный HIGH
-#define GREEN_LED_PIN 4     // внешний индикаторный LED (зелёный), активный HIGH
+#if defined(ARDUINO_ESP32C3_DEV)
+  // ESP32-C3: пины отличаются от оригинального ESP32
+  #define AURA_PIN    1
+  #define TX_PIN      17      // не используется на C3 (нет RMT_MEM_NUM_BLOCKS_6)
+  #define LED_PIN     2       // синий LED
+  #define EXT_LED_PIN 4       // красный LED
+  #define GREEN_LED_PIN 3     // зелёный LED
+  #define LCD_RS   9
+  #define LCD_EN   10
+  #define LCD_D4   5
+  #define LCD_D5   6
+  #define LCD_D6   7
+  #define LCD_D7   8
+  #define HAS_TX_SELF_TEST 0
+  #define RX_MEM_BLOCKS RMT_MEM_NUM_BLOCKS_2
+  #define RX_BATCH_SIZE 96             // 2 blocks * 48 words (ESP32-C3 RMT)
+#else
+  // Оригинальный ESP32
+  #define AURA_PIN    16
+  #define TX_PIN      17
+  #define LED_PIN     2        // встроенный LED (ESP32-DevKitC синий), активный HIGH
+  #define EXT_LED_PIN 15       // внешний индикаторный LED (красный), активный HIGH
+  #define GREEN_LED_PIN 4     // внешний индикаторный LED (зелёный), активный HIGH
+  #define LCD_RS   14
+  #define LCD_EN   27
+  #define LCD_D4   32
+  #define LCD_D5   33
+  #define LCD_D6   25
+  #define LCD_D7   26
+  #define HAS_TX_SELF_TEST 1
+  #define RX_MEM_BLOCKS RMT_MEM_NUM_BLOCKS_6
+  #define RX_BATCH_SIZE 384            // 6 blocks * 64 symbols
+#endif
 
-// Пины 4-битного параллельного LCD (HD44780 совместимый) — все на одной физической стороне
-// (левый ряд DevKit: 26, 25, 27, 33, 32) плюс D7 на GPIO14.
-#define LCD_RS   14
-#define LCD_EN   27
-#define LCD_D4   32
-#define LCD_D5   33
-#define LCD_D6   25
-#define LCD_D7   26
 #define LCD_COLS 16
 #define LCD_ROWS 2
 #define LCD_SIZE (LCD_COLS * LCD_ROWS)  // 32
@@ -98,10 +118,7 @@ static void print_hist(const char *label, uint32_t c[6]) {
 static rmt_data_t g_tx_items[N_LEDS_TEST * 24 + 2];
 static int        g_tx_n = 0;
 static bool       g_tx_on = true;
-
-// ============================================================================
-// Драйвер LCD (HD44780 4-бита)
-// ============================================================================
+static bool       g_rx_ok = false;        // RMT RX init succeeded
 
 static void build_test_frame() {
     // Цвета GRB для каждого LED
@@ -155,6 +172,16 @@ static char     lcd_buf_prev[LCD_SIZE];
 static uint8_t  lcd_colors[12][3];   // LED0..LED11, каждый R,G,B
 static bool     lcd_dirty = false;
 static unsigned long s_last_lcd_update = 0;  // время последнего обновления LCD (ms)
+static uint32_t     s_no_data_count = 0;    // счётчик пустых чтений rmtRead
+static unsigned long s_last_diag = 0;       // время последнего диагностического вывода
+
+// Таблица конвертации UTF-8 кириллица → LCD коды (из LiquidCrystalRus)
+static const uint8_t utf_recode[] = {
+    0x70,0x63,0xbf,0x79,0xe4,0x78,0xe5,0xc0,0xc1,0xe6,0xc2,0xc3,0xc4,0xc5,0xc6,0xc7,
+    0x41,0xa0,0x42,0xa1,0xe0,0x45,0xa3,0xa4,0xa5,0xa6,0x4b,0xa7,0x4d,0x48,0x4f,
+    0xa8,0x50,0x43,0x54,0xa9,0xaa,0x58,0xe1,0xab,0xac,0xe2,0xad,0xae,0x62,0xaf,0xb0,0xb1,
+    0x61,0xb2,0xb3,0xb4,0xe3,0x65,0xb6,0xb7,0xb8,0xb9,0xba,0xbb,0xbc,0xbd,0x6f,0xbe
+};
 
 // ============================================================================
 // Настройка
@@ -177,11 +204,19 @@ void setup() {
     for (int v = 255; v >= 0; v -= 8) { ledcWrite(LED_PIN, v); ledcWrite(EXT_LED_PIN, v); ledcWrite(GREEN_LED_PIN, v); delay(8); }
 
     Serial.println("\n========================================================");
-    Serial.println("  AURA ARGB RMT Raw Capture (RX) + TX Self-Test");
+#if defined(ARDUINO_ESP32C3_DEV)
+    Serial.println("  AURA ARGB RMT Capture — ESP32-C3");
+#else
+    Serial.println("  AURA ARGB RMT Capture — ESP32");
+#endif
     Serial.println("========================================================");
-    Serial.printf("  RX GPIO%d   TX GPIO%d   RMT tick = %u ns (%u MHz)\n",
-                  AURA_PIN, TX_PIN, tick_ns, TICK_HZ / 1000000);
-    Serial.println("  LCD HD44780 4-bit: RS=26 EN=25 D4=27 D5=33 D6=32 D7=14");
+    Serial.printf("  RX GPIO%d   RMT tick = %u ns (%u MHz)\n",
+                  AURA_PIN, tick_ns, TICK_HZ / 1000000);
+    Serial.printf("  RX_MEM_BLOCKS=%d  RX_BATCH_SIZE=%d  IDLE_TICKS=%d (%u us)\n",
+                  RX_MEM_BLOCKS, RX_BATCH_SIZE, IDLE_TICKS, IDLE_TICKS * tick_ns / 1000);
+    Serial.println("  LCD: HD44780 4-bit + UTF-8 Cyrillic");
+#if HAS_TX_SELF_TEST
+    Serial.printf("  TX GPIO%d (self-test enabled)\n", TX_PIN);
     Serial.println("  Self-test TX frame (GRB, MSB-first):");
     Serial.println("    LED0 red  : 00 FF 00");
     Serial.println("    LED1 green: FF 00 00");
@@ -189,30 +224,48 @@ void setup() {
     Serial.println("    LED3 white: FF FF FF");
     Serial.println("    LED4      : 00 00 00");
     Serial.println("  Self-test: wire GPIO17 -> GPIO16 (AURA tap off GPIO16).");
-    Serial.println("  Send 'd' = raw dump+hex.  Send 't' = toggle TX.  Send 'l' = toggle live/histogram.  Send 'a' = author info.\n");
+#else
+    Serial.println("  TX self-test DISABLED (ESP32-C3)");
+#endif
+    Serial.println("  Send 'd' = raw dump+hex.  Send 't' = toggle TX.");
+    Serial.println("  Send 'l' = toggle live/histogram.  Send 'a' = author info.");
+    Serial.println("  Send 'r' = LCD Russian test.\n");
 
-    if (!rmtInit(AURA_PIN, RMT_RX_MODE, RMT_MEM_NUM_BLOCKS_6, TICK_HZ)) {
-        Serial.println("[RMT] RX init FAILED!");
+    Serial.printf("[RMT] Initializing RX on GPIO%d with %d blocks...\n", AURA_PIN, RX_MEM_BLOCKS);
+    if (!rmtInit(AURA_PIN, RMT_RX_MODE, RX_MEM_BLOCKS, TICK_HZ)) {
+        Serial.println("[RMT] RX init FAILED! Check GPIO and RMT config.");
+    } else {
+        g_rx_ok = true;
+        Serial.println("[RMT] RX init OK.");
     }
     rmtSetRxMaxThreshold(AURA_PIN, IDLE_TICKS);
 
+#if HAS_TX_SELF_TEST
     if (!rmtInit(TX_PIN, RMT_TX_MODE, RMT_MEM_NUM_BLOCKS_2, TICK_HZ)) {
         Serial.println("[RMT] TX init FAILED!");
     }
-
     build_test_frame();
+#endif
 
-    // Инициализация LCD (HD44780 4-бита)
+    // Инициализация LCD (HD44780 4-бита + UTF-8 кириллица)
     lcd_init();
-    Serial.println("[LCD] HD44780 4-bit initialized.");
+    lcd_set_cursor(0, 0);
+    lcd_print_utf8("AURA RGB v2");
+    lcd_set_cursor(1, 0);
+    lcd_print_utf8("\xd0\x97\xd0\xb0\xd0\xb3\xd1\x80\xd1\x83\xd0\xb7\xd0\xba\xd0\xb0...");  // Загрузка...
+    Serial.println("[LCD] HD44780 initialized with UTF-8 Cyrillic.");
     Serial.printf("[RMT] TX frame built: %d symbols.\n", g_tx_n);
 
     // Запуск самопроверки TX непрерывно на Core 0, чтобы (блокирующий) rmtRead в
     // loop() на Core 1 мог всегда захватить живой кадр. rmtWrite синхронный
     // и иначе завершился бы до того, как rmtRead начнёт прослушивание.
+#if HAS_TX_SELF_TEST
     xTaskCreatePinnedToCore(txTask, "tx", 4096, NULL, 1, NULL, 0);
-
-    Serial.println("[RMT] RX running, TX self-test ON. LCD ready. Waiting for data...\n");
+    Serial.println("[RMT] RX running, TX self-test ON.");
+#else
+    Serial.println("[RMT] RX running, TX self-test DISABLED (ESP32-C3).");
+#endif
+    Serial.println("[LCD] HD44780 ready. Waiting for data...\n");
 }
 
 // Непрерывная передача известного кадра самопроверки на GPIO17 (Core 0).
@@ -282,8 +335,8 @@ static void lcd_write_nibble(uint8_t nib) {
 
 static void lcd_write(uint8_t val, bool is_data) {
     digitalWrite(LCD_RS, is_data ? HIGH : LOW);
-    lcd_write_nibble(val >> 4);        // старшая тетрада
-    lcd_write_nibble(val & 0x0F);      // младшая тетрада
+    lcd_write_nibble(val >> 4);
+    lcd_write_nibble(val & 0x0F);
     delayMicroseconds(100);
 }
 
@@ -295,36 +348,19 @@ static void lcd_init(void) {
     pinMode(LCD_D6, OUTPUT);
     pinMode(LCD_D7, OUTPUT);
 
-    delay(150);   // ожидание стабилизации питания
+    delay(150);
 
-    // Классическая последовательность инициализации HD44780 4-бита
     digitalWrite(LCD_RS, LOW);
     delayMicroseconds(100);
-    
-    // Первая последовательность сброса
-    lcd_write_nibble(0x03);
-    delayMicroseconds(4500);
-    
-    // Вторая последовательность сброса
-    lcd_write_nibble(0x03);
-    delayMicroseconds(150);
-    
-    // Третья последовательность сброса
-    lcd_write_nibble(0x03);
-    delayMicroseconds(100);
-    
-    // Установка 4-битного режима
-    lcd_write_nibble(0x02);
-    delayMicroseconds(100);
+    lcd_write_nibble(0x03); delayMicroseconds(4500);
+    lcd_write_nibble(0x03); delayMicroseconds(150);
+    lcd_write_nibble(0x03); delayMicroseconds(100);
+    lcd_write_nibble(0x02); delayMicroseconds(100);
 
-    // Настройка функций: 4-бита, 2 строки, 5x8 точек
-    lcd_write(0x28, false);
-    // Дисплей вкл: дисплей вкл, курсор выкл, мигание выкл
-    lcd_write(0x0C, false);
-    // Режим ввода: инкремент, без сдвига
-    lcd_write(0x06, false);
-    // Очистка дисплея
-    lcd_write(0x01, false);
+    lcd_write(0x28, false);  // 4-bit, 2 строки, 5x8
+    lcd_write(0x0C, false);  // дисплей вкл
+    lcd_write(0x06, false);  // инкремент без сдвига
+    lcd_write(0x01, false);  // очистка
     delay(5);
 }
 
@@ -333,8 +369,31 @@ static void lcd_set_cursor(uint8_t row, uint8_t col) {
     lcd_write(addr, false);
 }
 
-static void lcd_write_char(char c) {
-    lcd_write((uint8_t)c, true);
+// Вывод UTF-8 строки на LCD с конвертацией кириллицы
+static void lcd_print_utf8(const char *str) {
+    int utf_hi = -1;
+    while (*str) {
+        uint8_t c = (uint8_t)*str++;
+        if (utf_hi >= 0) {
+            if (c >= 0x80 && c < 0xC0) {
+                uint8_t idx = c & 0x3F;
+                if (utf_hi == 0 && idx == 1)
+                    lcd_write(0xA2, true);       // Ё
+                else if (utf_hi == 1 && idx == 0x11)
+                    lcd_write(0xB5, true);       // ё
+                else
+                    lcd_write(utf_recode[idx], true);
+            } else {
+                lcd_write(0xD0 + utf_hi, true);
+                lcd_write(c, true);
+            }
+            utf_hi = -1;
+        } else if (c == 0xD0 || c == 0xD1) {
+            utf_hi = c - 0xD0;
+        } else {
+            lcd_write(c, true);
+        }
+    }
 }
 
 static void lcd_update_display(void) {
@@ -342,11 +401,11 @@ static void lcd_update_display(void) {
     
     lcd_set_cursor(0, 0);
     for (int i = 0; i < LCD_COLS; i++) {
-        lcd_write_char(lcd_buf[i]);
+        lcd_write((uint8_t)lcd_buf[i], true);
     }
     lcd_set_cursor(1, 0);
     for (int i = LCD_COLS; i < LCD_SIZE; i++) {
-        lcd_write_char(lcd_buf[i]);
+        lcd_write((uint8_t)lcd_buf[i], true);
     }
     lcd_dirty = false;
 }
@@ -369,6 +428,20 @@ static void unpack_to_lcd(const uint8_t colors[][3]) {
 }
 
 // ============================================================================
+// Тест кириллицы на LCD
+// ============================================================================
+
+static void test_lcd_russian(void) {
+    lcd_write(0x01, false);  // clear
+    delay(5);
+    lcd_set_cursor(0, 0);
+    lcd_print_utf8("\xd0\x90\xd0\x91\xd0\x92\xd0\x93\xd0\x94\xd0\x95\xd0\x96\xd0\x97\xd0\x98\xd0\x99\xd0\x9a\xd0\x9b\xd0\x9c\xd0\x9d\xd0\x9e\xd0\x9f");
+    lcd_set_cursor(1, 0);
+    lcd_print_utf8("\xd0\xa0\xd0\xa1\xd0\xa2\xd0\xa3\xd0\xa4\xd0\xa5\xd0\xa6\xd0\xa7\xd0\xa8\xd0\xa9\xd0\xaa\xd0\xab\xd0\xac\xd0\xad\xd0\xae\xd0\xaf");
+    Serial.println("[LCD] Russian alphabet test displayed.");
+}
+
+// ============================================================================
 // Основной цикл
 // ============================================================================
 
@@ -379,24 +452,24 @@ void loop() {
         if (c == 't' || c == 'T') g_tx_on = !g_tx_on;
         if (c == 'l' || c == 'L') g_live = !g_live;
         if (c == 'a' || c == 'A') print_author();
+        if (c == 'r' || c == 'R') test_lcd_russian();
     }
 
     if (g_do_raw) {
         int total = 0;
         bool got_gap = false;
-        // Склейка нескольких вызовов rmtRead (HW буфер = 6 блоков = 384 символа)
-        // в один кадр. Останов при обнаружении символа сброс-паузы (dur0 >= 5000 нс).
-        while (total < MAX_ITEMS) {
-            size_t num = MAX_ITEMS - total;
-            if (!rmtRead(AURA_PIN, g_rx_buf + total, &num, 200)) break;  // таймаут/нет данных
-            for (size_t i = 0; i < num; i++) {
-                if (g_rx_buf[total + i].duration0 * tick_ns >= 5000) { got_gap = true; break; }
+            // Склейка нескольких вызовов rmtRead в один кадр.
+            // Останов при обнаружении символа сброс-паузы (dur0 >= 5000 нс)
+            // или когда rmtRead вернул меньше символов чем размер HW-буфера.
+            while (total < MAX_ITEMS) {
+                size_t num = MAX_ITEMS - total;
+                if (!rmtRead(AURA_PIN, g_rx_buf + total, &num, 200)) break;  // таймаут/нет данных
+                for (size_t i = 0; i < num; i++) {
+                    if (g_rx_buf[total + i].duration0 * tick_ns >= 5000) { got_gap = true; break; }
+                }
+                total += (int)num;
+                if (got_gap || (int)num < RX_BATCH_SIZE) break;
             }
-            total += (int)num;
-            // Останов при получении полного кадра (rmtRead ограничен 384-символьным
-            // HW буфером; возврат < 384 означает конец кадра, а не заполнение буфера).
-            if (got_gap || num < 384) break;
-        }
 
         // Декодирование в байты (пропуск символа сброс-паузы: dur0 >= 5000 нс).
         uint8_t out[400];
@@ -424,6 +497,12 @@ void loop() {
     // ---- Живой режим: декодирование LED0, управление встроенным LED по синему каналу ----
     size_t num = MAX_ITEMS;
     if (rmtRead(AURA_PIN, g_rx_buf, &num, 100)) {
+        if (s_no_data_count > 0) {
+            Serial.printf("[RMT] Data started arriving on GPIO%d after %lu failed reads, %d symbols\n",
+                          AURA_PIN, s_no_data_count, (int)num);
+            s_no_data_count = 0;
+            s_last_diag = 0;
+        }
         g_frame++;
         if (g_live) {
             uint8_t all_leds[36];   // 12 LED * 3 байта (GRB)
@@ -479,6 +558,15 @@ void loop() {
             Serial.println();
         }
     } else {
+        s_no_data_count++;
+        unsigned long now = millis();
+        if (s_no_data_count == 1) {
+            Serial.printf("[RMT] No data on GPIO%d (first miss)\n", AURA_PIN);
+        } else if (now - s_last_diag >= 5000) {
+            Serial.printf("[RMT] Still no data on GPIO%d (%lu failed reads, %lu sec)\n",
+                          AURA_PIN, s_no_data_count, (now - s_last_diag) / 1000);
+            s_last_diag = now;
+        }
         delay(10);   // нет данных в течение 100 мс
     }
     delay(1);
