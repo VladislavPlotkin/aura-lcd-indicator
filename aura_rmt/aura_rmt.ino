@@ -105,6 +105,14 @@ static void lcd_write(uint8_t val, bool is_data) {
     delayMicroseconds(100);
 }
 
+// Страница (таблица) знакогенератора CGROM: 0..3.
+// 0 = стр.0 (ASCII 0x20-0x7F + яп./символы 0x80-0xFF)
+// 2 = стр.2 (кириллическая A02: кириллица в 0xA0-0xE6)
+// Можно переключать на лету по Serial: команда P<n> (например P2).
+#ifndef LCD_CGROM_PAGE
+#define LCD_CGROM_PAGE 0
+#endif
+
 static void lcd_init(void) {
     pinMode(LCD_RS, OUTPUT);
     pinMode(LCD_EN, OUTPUT);
@@ -122,10 +130,10 @@ static void lcd_init(void) {
     lcd_write_nibble(0x03); delayMicroseconds(100);
     lcd_write_nibble(0x02); delayMicroseconds(100);
 
-    lcd_write(0x2A, false);  // 4-bit, 2 строки, 5x8 + вторая страница знакогенератора
-    lcd_write(0x0C, false);  // дисплей вкл
-    lcd_write(0x06, false);  // инкремент без сдвига
-    lcd_write(0x01, false);  // очистка
+    lcd_set_table(LCD_CGROM_PAGE);  // выбрать страницу CGROM и вернуться в базовый режим
+    lcd_write(0x0C, false);  // дисплей вкл (базовый режим)
+    lcd_write(0x06, false);  // инкремент без сдвига (базовый)
+    lcd_write(0x01, false);  // очистка (базовый)
     delay(5);
 }
 
@@ -142,11 +150,15 @@ static void lcd_print_ascii(const char *str, uint8_t row, uint8_t col) {
     }
 }
 
-// Переключение на вторую страницу знакогенератора (CG ROM A02) командой 0x2A.
-// Команда не очищает экран и не сбрасывает курсор, поэтому безопасно
-// вызывать повторно в любой момент.
-static void lcd_set_second_table(void) {
-    lcd_write(0x2A, false); // Function Set: 4-бит, 2 строки, 5x8, 2-я таблица CG
+// Выбор страницы (таблицы) знакогенератора CGROM.
+// Биты DB1:DB0 команды Function Set в расширенном режиме (RE=1) выбирают
+// таблицу: 0x28 -> стр.0, 0x29 -> стр.1, 0x2A -> стр.2, 0x2B -> стр.3.
+// После выбора возвращаемся в БАЗОВЫЙ режим (RE=0); выбор фиксируется (latch)
+// и обычные команды (дисплей вкл, курсор, данные) работают штатно.
+static void lcd_set_table(uint8_t page) {
+    uint8_t fs = 0x20 | 0x08 | ((page & 0x03) << 1); // RE=1, N=1, таблица (DB1:DB0)
+    lcd_write(fs, false);   // выбрать таблицу (расширенный режим)
+    lcd_write(0x28, false); // RE=0 — базовый режим, таблица сохранена
     delay(5);
 }
 
@@ -154,7 +166,6 @@ static void lcd_set_second_table(void) {
 static void lcd_update_display(void) {
     if (!lcd_dirty) return;
     
-    lcd_set_second_table(); // гарантируем работу со 2-й страницей знакогенератора
     lcd_set_cursor(0, 0);
     for (int i = 0; i < LCD_COLS; i++) {
         lcd_write((uint8_t)lcd_buf[i], true);
@@ -237,11 +248,11 @@ void setup() {
 
     // LCD init и принудительная установка 2-й таблицы
     lcd_init();
-    lcd_set_second_table();  // Принудительно ставим 2-ю таблицу
+    lcd_set_table(LCD_CGROM_PAGE);  // принудительно ставим выбранную страницу
     lcd_print_ascii("AURA RGB", 0, 0);
     lcd_print_ascii("Waiting...", 1, 0);
-    
-    Serial.println("[LCD] Инициализирован, 2-я кодовая таблица установлена.");
+
+    Serial.printf("[LCD] Инициализирован, CGROM page=%d\n", LCD_CGROM_PAGE);
     Serial.println("[RMT] Ожидание данных...");
 }
 
@@ -292,5 +303,28 @@ void loop() {
         delay(10);
     }
     
+    // --- Команды по Serial: P<n> — выбрать страницу CGROM (0..3) ---
+    while (Serial.available()) {
+        static String sbuf;
+        int c = Serial.read();
+        if (c == '\n' || c == '\r') {
+            sbuf.trim();
+            if (sbuf.length() == 2 && sbuf[0] == 'P' && sbuf[1] >= '0' && sbuf[1] <= '3') {
+                uint8_t pg = sbuf[1] - '0';
+                lcd_set_table(pg);
+                lcd_write(0x01, false); delay(5);            // очистка
+                lcd_print_ascii("CGROM page", 0, 0);
+                lcd_print_ascii(String(pg).c_str(), 1, 0);
+                Serial.printf("[LCD] CGROM page set to %d\n", pg);
+            } else if (sbuf.length() > 0) {
+                Serial.printf("[LCD] unknown cmd: %s (use P0..P3)\n", sbuf.c_str());
+            }
+            sbuf = "";
+        } else if (c >= 32) {
+            sbuf += (char)c;
+            if (sbuf.length() > 8) sbuf = "";
+        }
+    }
+
     delay(1);
 }
