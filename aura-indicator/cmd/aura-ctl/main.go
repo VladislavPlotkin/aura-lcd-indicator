@@ -207,12 +207,40 @@ func padToCols(s string, cols int) string {
 }
 
 func cmdLCD(args []string) {
-	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "Usage: aura-ctl lcd <text>\n")
+	raw := false
+	filtered := make([]string, 0, len(args))
+	for _, a := range args {
+		switch a {
+		case "--raw", "-r":
+			raw = true
+		default:
+			filtered = append(filtered, a)
+		}
+	}
+
+	if len(filtered) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: aura-ctl lcd [--raw <hex>] <text>\n")
 		os.Exit(1)
 	}
 
-	text := strings.Join(args, " ")
+	if raw {
+		// Raw-режим: аргумент(ы) — hex-коды CGROM (с пробелами или слитно).
+		// Например: aura-ctl lcd --raw "41 42 43"  или  aura-ctl lcd -r c0d0
+		hex := strings.Join(filtered, "")
+		codes, err := parseHexBytes(hex)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		_, err = aura.SendLCDRaw(codes, devicePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	text := strings.Join(filtered, " ")
 
 	// Явный перенос строки (\n) трактуем как разделитель строк LCD:
 	// "строка0\nстрока1" -> 32-символьная строка (16 + 16).
@@ -228,6 +256,23 @@ func cmdLCD(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// parseHexBytes парсит hex-строку (с пробелами или без) в байты.
+func parseHexBytes(s string) ([]byte, error) {
+	s = strings.Join(strings.Fields(s), "")
+	if len(s)%2 != 0 {
+		return nil, fmt.Errorf("hex must have even length, got %d chars", len(s))
+	}
+	out := make([]byte, len(s)/2)
+	for i := 0; i < len(out); i++ {
+		v, err := strconv.ParseUint(s[2*i:2*i+2], 16, 8)
+		if err != nil {
+			return nil, fmt.Errorf("invalid hex at byte %d: %w", i, err)
+		}
+		out[i] = byte(v)
+	}
+	return out, nil
 }
 
 func cmdLCDLine(args []string) {

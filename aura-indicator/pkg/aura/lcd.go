@@ -8,57 +8,12 @@ const (
 	LCDCols = 16
 )
 
-// CharToLCDCode конвертирует руну в байт для HD44780 LCD.
-// ASCII 0x20-0x7F оставляет как есть.
-// Кириллица (А-Я, а-я, Ёё) маппится на LCD-коды по cyrillicMap.
-// Любой другой символ (латиница-1, спецсимволы CGROM и т.п.) пропускается
-// как есть (младший байт), без подмены пробелом — чтобы на дисплее можно
-// было вывести любой код, присутствующий в знакогенераторе.
+// CharToLCDCode возвращает байт символа как есть (младший байт руны).
+// Таблица знакогенератора LCD совпадает с ASCII, поэтому маппинг не нужен —
+// байт руны и есть код CGROM. Для отправки произвольных кодов (0x00-0x1F,
+// 0x80-0xFF) используйте SendLCDRaw.
 func CharToLCDCode(char rune) byte {
-	// ASCII passthrough
-	if char >= 0x20 && char <= 0x7F {
-		return byte(char)
-	}
-
-	// Кириллица: U+0410-U+044F, U+0401/U+0451 = Ё/ё
-	if lcd, ok := cyrillicMap[char]; ok {
-		return lcd
-	}
-
-	// Без фильтра: пропускаем младший байт руны напрямую.
-	// Позволяет выводить спецсимволы CGROM (напр. через printf '\xNN').
 	return byte(char & 0xFF)
-}
-
-// cyrillicMap — маппинг Unicode-кодов кириллицы → LCD-коды HD44780.
-// Таблица взята из LiquidCrystalRus / ESP32 utf_recode[].
-var cyrillicMap = map[rune]byte{
-	// Заглавные А-П (U+0410..U+041F)
-	'А': 0x41, 'Б': 0xA0, 'В': 0x42, 'Г': 0xA1,
-	'Д': 0xE0, 'Е': 0x45, 'Ж': 0xA3, 'З': 0xA4,
-	'И': 0xA5, 'Й': 0xA6, 'К': 0x4B, 'Л': 0xA7,
-	'М': 0x4D, 'Н': 0x48, 'О': 0x4F, 'П': 0xA8,
-
-	// Заглавные Р-Я (U+0420..U+042F)
-	'Р': 0x50, 'С': 0x43, 'Т': 0x54, 'У': 0xA9,
-	'Ф': 0xAA, 'Х': 0x58, 'Ц': 0xE1, 'Ч': 0xAB,
-	'Ш': 0xAC, 'Щ': 0xE2, 'Ъ': 0xAD, 'Ы': 0xAE,
-	'Ь': 0x62, 'Э': 0xAF, 'Ю': 0xB0, 'Я': 0xB1,
-
-	// Строчные а-п (U+0430..U+043F)
-	'а': 0x61, 'б': 0xB2, 'в': 0xB3, 'г': 0xB4,
-	'д': 0xE3, 'е': 0x65, 'ж': 0xB6, 'з': 0xB7,
-	'и': 0xB8, 'й': 0xB9, 'к': 0xBA, 'л': 0xBB,
-	'м': 0xBC, 'н': 0xBD, 'о': 0x6F, 'п': 0xBE,
-
-	// Строчные р-я (U+0440..U+044F)
-	'р': 0x70, 'с': 0x63, 'т': 0xBF, 'у': 0x79,
-	'ф': 0xE4, 'х': 0x78, 'ц': 0xE5, 'ч': 0xC0,
-	'ш': 0xC1, 'щ': 0xE6, 'ъ': 0xC2, 'ы': 0xC3,
-	'ь': 0xC4, 'э': 0xC5, 'ю': 0xC6, 'я': 0xC7,
-
-	// Ё/ё
-	'Ё': 0xA2, 'ё': 0xB5,
 }
 
 // SplitToDisplay готовит строку для LCD: обрезает до rows*cols,
@@ -109,6 +64,60 @@ func BuildLEDColors(text string, rows, cols int) [][3]byte {
 	}
 
 	return colors
+}
+
+// BuildLEDColorsFromCodes строит массив LED-цветов напрямую из сырых
+// байт-кодов CGROM, без маппинга и без интерпретации UTF-8.
+// Используется raw-режимом для передачи произвольных кодов (0x00-0xFF).
+// Позиция 16 — граница строк (row0: 0-15, row1: 16-31).
+func BuildLEDColorsFromCodes(codes []byte, rows, cols int) [][3]byte {
+	totalChars := rows * cols
+	numLEDs := 1 + (totalChars+2)/3 // +1 для LED0, ceil деление
+	colors := make([][3]byte, numLEDs)
+
+	for i := 0; i < totalChars && i < len(codes); i++ {
+		ledIdx := i/3 + 1 // +1 пропускает LED0 (индикатор)
+		channel := i % 3  // 0=R, 1=G, 2=B
+		colors[ledIdx][channel] = codes[i]
+	}
+	return colors
+}
+
+// SendLCDRaw отправляет произвольные байт-коды CGROM на LCD (raw-режим).
+// codes — сырые коды знакогенератора (0x00-0xFF). Обрезаются/дополняются
+// до 32 (totalChars). Хвост дополняется 0x00 (пустой символ CGRAM0).
+func SendLCDRaw(codes []byte, devicePath string) (string, error) {
+	total := LCDRows * LCDCols
+
+	buf := make([]byte, total)
+	if len(codes) > total {
+		copy(buf, codes[:total])
+	} else {
+		copy(buf, codes)
+	}
+
+	colors := BuildLEDColorsFromCodes(buf, LCDRows, LCDCols)
+
+	// Извлекаем LCD часть (LED1..LED32), паддим до 32 записей
+	lcdColors := make([][3]byte, 0, LCDLedCount)
+	if len(colors) > 1 {
+		lcdColors = append(lcdColors, colors[1:]...)
+	}
+	for len(lcdColors) < LCDLedCount {
+		lcdColors = append(lcdColors, [3]byte{0, 0, 0})
+	}
+
+	state := LoadState()
+	SetLCDColors(state, lcdColors)
+	if err := SaveState(state); err != nil {
+		return "", err
+	}
+
+	warning := ""
+	if len(codes) > total {
+		warning = "raw codes truncated to 32"
+	}
+	return sendColors(GetFullColors(state), devicePath, warning)
 }
 
 // SendLCDText отправляет текст на LCD через direct-режим led2.
