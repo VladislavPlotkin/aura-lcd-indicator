@@ -174,8 +174,9 @@ static void unpack_to_lcd(const uint8_t colors[][3]) {
         int ch = i % 3;               // 0=R, 1=G, 2=B
         
         uint8_t code = colors[led_idx][ch];
-        // Выводим как символы, если значение > 0x20 (чтобы не портить экран)
-        char c = (code >= 0x20) ? (char)code : ' ';
+        // Без фильтра: выводим любой код, который есть в знакогенераторе
+        // (0x00-0x1F — спецсимволы/CGRAM, 0x20-0x7F — ASCII, 0xA0-0xFF — кириллица и символы).
+        char c = (char)code;
         
         if (c != lcd_buf[i]) changed = true;
         lcd_buf[i] = c;

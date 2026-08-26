@@ -341,12 +341,15 @@ func TestCharToLCDCode_Cyrillic(t *testing.T) {
 	}
 }
 
-func TestCharToLCDCode_UnknownReturnsSpace(t *testing.T) {
+func TestCharToLCDCode_UnknownPassesThrough(t *testing.T) {
+	// После отмены фильтра любой символ пропускается как есть (младший байт),
+	// чтобы на LCD можно было вывести любой код знакогенератора.
 	unknowns := []rune{'€', '★', 'ä', 'ñ', '中'}
 	for _, r := range unknowns {
 		got := CharToLCDCode(r)
-		if got != 0x20 {
-			t.Errorf("CharToLCDCode(%q) = 0x%02X, want 0x20 (space)", r, got)
+		want := byte(r & 0xFF)
+		if got != want {
+			t.Errorf("CharToLCDCode(%q) = 0x%02X, want 0x%02X (low byte passthrough)", r, got, want)
 		}
 	}
 }

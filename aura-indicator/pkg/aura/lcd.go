@@ -10,7 +10,10 @@ const (
 
 // CharToLCDCode конвертирует руну в байт для HD44780 LCD.
 // ASCII 0x20-0x7F оставляет как есть.
-// Всё остальное (русские буквы, эмодзи) → пробел 0x20.
+// Кириллица (А-Я, а-я, Ёё) маппится на LCD-коды по cyrillicMap.
+// Любой другой символ (латиница-1, спецсимволы CGROM и т.п.) пропускается
+// как есть (младший байт), без подмены пробелом — чтобы на дисплее можно
+// было вывести любой код, присутствующий в знакогенераторе.
 func CharToLCDCode(char rune) byte {
 	// ASCII passthrough
 	if char >= 0x20 && char <= 0x7F {
@@ -22,7 +25,9 @@ func CharToLCDCode(char rune) byte {
 		return lcd
 	}
 
-	return 0x20 // space
+	// Без фильтра: пропускаем младший байт руны напрямую.
+	// Позволяет выводить спецсимволы CGROM (напр. через printf '\xNN').
+	return byte(char & 0xFF)
 }
 
 // cyrillicMap — маппинг Unicode-кодов кириллицы → LCD-коды HD44780.
@@ -79,16 +84,18 @@ func SplitToDisplay(text string, rows, cols int) string {
 // BuildLEDColors строит массив LED-цветов из текста.
 // Первый LED (индекс 0) — заглушка (чёрный), используется для индикатора.
 // Каждый LED кодирует 3 символа: R, G, B каналы.
-// Возвращает [][3]byte длиной (rows*cols + 2) / 3 + 1 ... 
+// Возвращает [][3]byte длиной (rows*cols + 2) / 3 + 1 ...
 // Правильная формула:
-//   totalChars = rows * cols
-//   numLEDs = 1 + (totalChars + 3 - 1) / 3  // +1 для LED0 (индикатор)
+//
+//	totalChars = rows * cols
+//	numLEDs = 1 + (totalChars + 3 - 1) / 3  // +1 для LED0 (индикатор)
 //
 // colors[0] = {0,0,0} — зарезервировано для индикатора
 // Для i от 0 до len(runes)-1:
-//   ledIdx = i / 3 + 1    // +1 пропускает LED0
-//   channel = i % 3       // 0=R, 1=G, 2=B
-//   colors[ledIdx][channel] = CharToLCDCode(runes[i])
+//
+//	ledIdx = i / 3 + 1    // +1 пропускает LED0
+//	channel = i % 3       // 0=R, 1=G, 2=B
+//	colors[ledIdx][channel] = CharToLCDCode(runes[i])
 func BuildLEDColors(text string, rows, cols int) [][3]byte {
 	totalChars := rows * cols
 	numLEDs := 1 + (totalChars+2)/3 // +1 для LED0, ceil деление
@@ -108,8 +115,10 @@ func BuildLEDColors(text string, rows, cols int) [][3]byte {
 //
 // Если row < 0 — full-screen режим (32 символа, 2 строки).
 // Если row == 0 или row == 1 — single-line режим:
-//   загружается существующий state, обновляется только указанная строка,
-//   вторая строка сохраняется, хвост строки зачищается пробелами.
+//
+//	загружается существующий state, обновляется только указанная строка,
+//	вторая строка сохраняется, хвост строки зачищается пробелами.
+//
 // Передаёт в led2 полный 33-LED буфер (индикатор + LCD).
 //
 // Возвращает предупреждение, если текст был обрезан.
