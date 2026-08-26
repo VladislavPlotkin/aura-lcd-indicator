@@ -416,7 +416,7 @@ static void unpack_to_lcd(const uint8_t colors[][3]) {
         int led_idx = i / 3 + 1;      // 1..11
         int ch = i % 3;               // 0=R, 1=G, 2=B
         uint8_t code = colors[led_idx][ch];
-        char c = (code >= 0x20 && code <= 0x7F) ? (char)code : ' ';
+        char c = (code >= 0x20) ? (char)code : ' ';  // pass all valid LCD codes (ASCII + Cyrillic 0xA0-0xE6)
         if (c != lcd_buf[i]) changed = true;
         lcd_buf[i] = c;
     }
