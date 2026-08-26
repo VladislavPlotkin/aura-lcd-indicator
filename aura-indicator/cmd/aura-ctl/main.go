@@ -194,6 +194,18 @@ func cmdOff(args []string) {
 	}
 }
 
+// padToCols обрезает строку до cols символов и дополняет пробелами справа.
+func padToCols(s string, cols int) string {
+	runes := []rune(s)
+	if len(runes) > cols {
+		runes = runes[:cols]
+	}
+	for len(runes) < cols {
+		runes = append(runes, ' ')
+	}
+	return string(runes)
+}
+
 func cmdLCD(args []string) {
 	if len(args) < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: aura-ctl lcd <text>\n")
@@ -201,6 +213,15 @@ func cmdLCD(args []string) {
 	}
 
 	text := strings.Join(args, " ")
+
+	// Явный перенос строки (\n) трактуем как разделитель строк LCD:
+	// "строка0\nстрока1" -> 32-символьная строка (16 + 16).
+	// Bash-демо передают уже готовую 32-символьную строку без \n,
+	// поэтому эта ветка их не затрагивает.
+	if strings.Contains(text, "\n") {
+		parts := strings.SplitN(text, "\n", 2)
+		text = padToCols(parts[0], aura.LCDCols) + padToCols(parts[1], aura.LCDCols)
+	}
 
 	_, err := aura.SendLCDText(text, -1, devicePath)
 	if err != nil {
@@ -270,9 +291,10 @@ func cmdBlink(args []string) {
 
 // cmdSpinner — анимированный спиннер на LCD.
 // Использование: aura-ctl spinner <текст> [символы] [мсек]
-//   text    — текст справа от спиннера
-//   chars   — символы спиннера (по умолчанию "/|\-")
-//   ms      — задержка между кадрами (по умолчанию 200)
+//
+//	text    — текст справа от спиннера
+//	chars   — символы спиннера (по умолчанию "/|\-")
+//	ms      — задержка между кадрами (по умолчанию 200)
 func cmdSpinner(args []string) {
 	if len(args) < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: aura-ctl spinner <text> [chars] [ms]\n")
