@@ -178,6 +178,22 @@ static void lcd_update_display(void) {
 }
 
 // Заполнение буфера LCD цветами LED
+// Допустимые коды CGROM — чтобы на дисплей не попадал мусор.
+//  0x20-0x7F            — печатный ASCII: латиница, цифры, знаки препинания,
+//                         двоеточия/точки, дефис, + - = , и 0x7F = █ (блок).
+//  0x10-0x1F            — спецсимволы HD44780: стрелки, ромбы, блоки, линии.
+//  0xA0-0xE6            — кириллица (русские буквы, страница 2 / A02),
+//                         а также латиница-1 символы (§, °, ±, ´ и т.п.).
+//  0xD7, 0xF7           — × и ÷ (арифметические).
+// Всё остальное (неизвестные/служебные коды) считается мусором -> пробел.
+static bool is_known_lcd_code(uint8_t code) {
+    if (code >= 0x20 && code <= 0x7F) return true;
+    if (code >= 0x10 && code <= 0x1F) return true;
+    if (code >= 0xA0 && code <= 0xE6) return true;
+    if (code == 0xD7 || code == 0xF7) return true;
+    return false;
+}
+
 static void unpack_to_lcd(const uint8_t colors[][3]) {
     bool changed = false;
     for (int i = 0; i < LCD_SIZE; i++) {
@@ -185,8 +201,9 @@ static void unpack_to_lcd(const uint8_t colors[][3]) {
         int ch = i % 3;               // 0=R, 1=G, 2=B
         
         uint8_t code = colors[led_idx][ch];
-        // Без фильтра: выводим любой код, который есть в знакогенераторе
-        // (0x00-0x1F — спецсимволы/CGRAM, 0x20-0x7F — ASCII, 0xA0-0xFF — кириллица и символы).
+        // Фильтруем мусор: показываем только известные символы CGROM,
+        // неизвестный код заменяем пробелом.
+        if (!is_known_lcd_code(code)) code = ' ';
         char c = (char)code;
         
         if (c != lcd_buf[i]) changed = true;
