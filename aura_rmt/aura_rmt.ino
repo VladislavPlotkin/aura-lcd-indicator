@@ -105,10 +105,8 @@ static void lcd_write(uint8_t val, bool is_data) {
     delayMicroseconds(100);
 }
 
-// Страница (таблица) знакогенератора CGROM: 0..3.
-// 0 = стр.0 (ASCII 0x20-0x7F + яп./символы 0x80-0xFF)
-// 2 = стр.2 (кириллическая A02: кириллица в 0xA0-0xE6)
-// Можно переключать на лету по Serial: команда P<n> (например P2).
+// Страница (таблица) знакогенератора CGROM: фиксирована, переключение отключено.
+// 2 = стр.2 (кириллическая A02: кириллица в 0xA0-0xE6).
 #ifndef LCD_CGROM_PAGE
 #define LCD_CGROM_PAGE 2
 #endif
@@ -263,9 +261,8 @@ void setup() {
     }
     rmtSetRxMaxThreshold(AURA_PIN, IDLE_TICKS);
 
-    // LCD init и принудительная установка 2-й таблицы
+    // LCD init (страница CGROM фиксирована = LCD_CGROM_PAGE)
     lcd_init();
-    lcd_set_table(LCD_CGROM_PAGE);  // принудительно ставим выбранную страницу
     lcd_print_ascii("AURA RGB", 0, 0);
     lcd_print_ascii("Waiting...", 1, 0);
 
@@ -320,28 +317,5 @@ void loop() {
         delay(10);
     }
     
-    // --- Команды по Serial: P<n> — выбрать страницу CGROM (0..3) ---
-    while (Serial.available()) {
-        static String sbuf;
-        int c = Serial.read();
-        if (c == '\n' || c == '\r') {
-            sbuf.trim();
-            if (sbuf.length() == 2 && sbuf[0] == 'P' && sbuf[1] >= '0' && sbuf[1] <= '3') {
-                uint8_t pg = sbuf[1] - '0';
-                lcd_set_table(pg);
-                lcd_write(0x01, false); delay(5);            // очистка
-                lcd_print_ascii("CGROM page", 0, 0);
-                lcd_print_ascii(String(pg).c_str(), 1, 0);
-                Serial.printf("[LCD] CGROM page set to %d\n", pg);
-            } else if (sbuf.length() > 0) {
-                Serial.printf("[LCD] unknown cmd: %s (use P0..P3)\n", sbuf.c_str());
-            }
-            sbuf = "";
-        } else if (c >= 32) {
-            sbuf += (char)c;
-            if (sbuf.length() > 8) sbuf = "";
-        }
-    }
-
     delay(1);
 }
