@@ -176,19 +176,26 @@ static void lcd_update_display(void) {
 }
 
 // Заполнение буфера LCD цветами LED
-// Допустимые коды CGROM — чтобы на дисплей не попадал мусор.
-//  0x20-0x7F            — печатный ASCII: латиница, цифры, знаки препинания,
-//                         двоеточия/точки, дефис, + - = , и 0x7F = █ (блок).
-//  0x10-0x1F            — спецсимволы HD44780: стрелки, ромбы, блоки, линии.
-//  0xA0-0xE6            — кириллица (русские буквы, страница 2 / A02),
-//                         а также латиница-1 символы (§, °, ±, ´ и т.п.).
-//  0xD7, 0xF7           — × и ÷ (арифметические).
-// Всё остальное (неизвестные/служебные коды) считается мусором -> пробел.
+// Допустимые коды CGROM (по документации ROM дисплея) — чтобы на дисплей не
+// попадал мусор. Всё остальное (неизвестные/служебные коды) -> пробел.
+//   0x11-0x15  0x1A-0x7A  0x20
+//   0x84-0x87  0x90       0x9B-0x9C
+//   0xA0-0xAF  0xB0-0xC7
+//   0xD0       0xD9-0xDA  0xE1-0xE7
+//   0xFF (закрашенный прямоугольник)
 static bool is_known_lcd_code(uint8_t code) {
-    if (code >= 0x20 && code <= 0x7F) return true;
-    if (code >= 0x10 && code <= 0x1F) return true;
-    if (code >= 0xA0 && code <= 0xE6) return true;
-    if (code == 0xD7 || code == 0xF7) return true;
+    if (code >= 0x11 && code <= 0x15) return true;
+    if (code >= 0x1A && code <= 0x7A) return true;
+    if (code == 0x20)                 return true;
+    if (code >= 0x84 && code <= 0x87) return true;
+    if (code == 0x90)                 return true;
+    if (code >= 0x9B && code <= 0x9C) return true;
+    if (code >= 0xA0 && code <= 0xAF) return true;
+    if (code >= 0xB0 && code <= 0xC7) return true;
+    if (code == 0xD0)                 return true;
+    if (code >= 0xD9 && code <= 0xDA) return true;
+    if (code >= 0xE1 && code <= 0xE7) return true;
+    if (code == 0xFF)                 return true;
     return false;
 }
 
@@ -300,7 +307,7 @@ void loop() {
         
         // Обновляем LCD (ограничиваем частоту, т.к. экран медленный)
         unsigned long now = millis();
-        if (now - s_last_lcd_update >= 500) { // обновление 2 раза в сек
+        if (now - s_last_lcd_update >= 800) { // обновление ~1.25 раза в сек (0.8 с)
             unpack_to_lcd(lcd_colors);
             lcd_update_display();
             s_last_lcd_update = now;
@@ -317,5 +324,19 @@ void loop() {
         delay(10);
     }
     
+    // --- Команды по Serial ---
+    while (Serial.available()) {
+        int c = Serial.read();
+        if (c == 'D' || c == 'd') {
+            // Дамп текущего буфера LCD (LCD_SIZE байт) в hex — для проверки декодирования
+            Serial.print("LCD:");
+            for (int i = 0; i < LCD_SIZE; i++) {
+                Serial.printf(" %02X", (uint8_t)lcd_buf[i]);
+            }
+            Serial.println();
+        }
+        // прочие символы игнорируются
+    }
+
     delay(1);
 }
