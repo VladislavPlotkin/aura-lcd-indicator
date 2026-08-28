@@ -1,0 +1,34 @@
+#!/bin/bash
+# Демо: настроения (цвета индикатора)
+# Каждое настроение = определённый цвет + подпись на LCD
+
+CDIR="$(cd "$(dirname "$0")" && pwd)"
+CTL="$CDIR/../aura-indicator/bin/aura-ctl"
+pad() { local s="$1"; s="${s:0:16}"; local len=${#s}; printf '%s' "$s"; local i; for ((i=len; i<16; i++)); do printf ' '; done; }
+join() { echo "$(pad "$1")$(pad "$2")"; }
+
+echo "=== Демо настроений ==="
+
+# Название: цвет | LCD строка 0 | LCD строка 1
+moods=(
+  "255,0,0|Радость|Весело"
+  "0,0,255|Грусть|Тоска"
+  "255,165,0|Злость|Гнев"
+  "255,255,0|Удивление|Ого!"
+  "0,255,0|Покой|Тишина"
+  "128,0,128|Любовь|Сердце"
+  "0,200,200|Усталость|Сон"
+  "255,100,50|Воодушевление|Вперёд!"
+  "200,200,200|Нейтрально|Обычно"
+)
+
+for mood in "${moods[@]}"; do
+  IFS='|' read -r color line0 line1 <<< "$mood"
+  $CTL lcd "$(join "$line0" "$line1")"
+  $CTL set led2 static "$color"
+  echo "  $line0 $line1: $color"
+  sleep 3
+done
+
+$CTL off led2
+echo "Демо завершено!"

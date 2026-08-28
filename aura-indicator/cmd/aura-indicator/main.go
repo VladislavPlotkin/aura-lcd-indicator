@@ -132,9 +132,14 @@ const resLcdText = `# Display — 16x2 Character Screen
 A 2-line character display, 16 characters per line (32 total when both lines used).
 
 ## Character table
-Only ASCII is supported: Latin letters (A-Z, a-z), digits (0-9), and basic
-punctuation/space. Anything else (Cyrillic, emoji, non-printable) is replaced
-with a space by the display firmware. Keep text in English/ASCII.
+The display uses an index-based CGROM table (161 entries) that maps sequential
+indices to HD44780 CGROM codes. Supported characters include:
+- ASCII printable: A-Z, a-z, 0-9, punctuation (indices 0-101)
+- Special symbols: arrows, blocks (indices 1-5, 96-108)
+- Cyrillic (Russian): А-Я, а-я, Ёё (indices 44-148 for mapped chars, 109-159 for dedicated codes)
+- Filled block: █ (index 160)
+
+Unknown/unsupported characters are replaced with space.
 
 ## Limits and behavior
 | Mode | Max chars | Parameter | On overflow |
@@ -143,14 +148,14 @@ with a space by the display firmware. Keep text in English/ASCII.
 | Single line (row 0 or 1) | 16 | row = 0 or 1 | Truncated, warning returned — rephrase to fit 16 |
 
 ## What to print
-The screen is small — print SHORT status/debug info only, in English/ASCII:
+The screen is small — print SHORT status/debug info only:
 - Current action keyword: "thinking", "planning", "coding", "reviewing",
   "testing", "building docs", "deploying"
 - Progress markers: "step 3/5", "waiting input", "done", "error"
 - Short task keywords or stage names
+- Cyrillic text is fully supported (e.g. "Планирование", "Тестирование")
 - Anything that helps the user glance at what the agent is doing
 
-Do NOT print: long sentences, Russian/Cyrillic, emoji, or full error dumps.
 Keep each line <= 16 chars; full screen <= 32 chars.
 
 ## MCP examples

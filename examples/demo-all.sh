@@ -15,6 +15,14 @@ DEMOS=(
     demo-rainbow.sh
     demo-status.sh
 )
+DEMOS_RU=(
+    demo-status-ru.sh
+    demo-rainbow-ru.sh
+    demo-quotes-ru.sh
+    demo-moods-ru.sh
+    demo-boot-ru.sh
+    demo-pulse-ru.sh
+)
 
 if [ -n "$1" ]; then
     # Запустить конкретный
@@ -24,9 +32,22 @@ if [ -n "$1" ]; then
         bash "$CDIR/$name"
     else
         echo "Unknown demo: $1"
-        echo "Available: ${DEMOS[*]}"
+        echo "Available (EN): ${DEMOS[*]}"
+        echo "Available (RU): ${DEMOS_RU[*]}"
         exit 1
     fi
+elif [ "$1" = "ru" ]; then
+    # Запустить все русские демо
+    for demo in "${DEMOS_RU[@]}"; do
+        echo ""
+        echo "================================================"
+        echo ">>> $demo"
+        echo "================================================"
+        bash "$CDIR/$demo"
+        sleep 1
+    done
+    echo ""
+    echo "All RU demos done!"
 else
     # Запустить все
     for demo in "${DEMOS[@]}"; do
