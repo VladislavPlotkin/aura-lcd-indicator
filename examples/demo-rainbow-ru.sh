@@ -1,5 +1,5 @@
 #!/bin/bash
-# Демо: радуга на индикаторе
+# Демо: радуга на индикаторе (русский)
 
 CDIR="$(cd "$(dirname "$0")" && pwd)"
 CTL="$CDIR/../aura-indicator/bin/aura-ctl"
@@ -16,25 +16,36 @@ RAINBOW=(
     "143,0,255"
 )
 
-echo "=== Rainbow demo ==="
+RAINBOW_NAMES=(
+    "Красный"
+    "Оранжевый"
+    "Жёлтый"
+    "Зелёный"
+    "Синий"
+    "Индиго"
+    "Фиолетовый"
+)
 
-$CTL lcd "$(join "Rainbow!" "7 colors!")"
+echo "=== Демо радуга ==="
 
-for color in "${RAINBOW[@]}"; do
-    $CTL set led2 static "$color"
+$CTL lcd "$(join "Радуга!" "7 цветов!")"
+
+for i in "${!RAINBOW[@]}"; do
+    $CTL set led2 static "${RAINBOW[$i]}"
+    echo "  ${RAINBOW_NAMES[$i]}: ${RAINBOW[$i]}"
     sleep 0.7
 done
 
-$CTL lcd "$(join "Rainbow 2x" "fast!")"
+$CTL lcd "$(join "Радуга 2x" "быстро!")"
 
-for i in 1 2; do
+for round in 1 2; do
     for color in "${RAINBOW[@]}"; do
         $CTL set led2 static "$color"
         sleep 0.3
     done
 done
 
-$CTL lcd "$(join "Blink rainbow!" "3 times each")"
+$CTL lcd "$(join "Мигание" "радугой!")"
 
 for i in 1 2 3; do
     $CTL set led2 static 255,0,0
@@ -46,4 +57,4 @@ for i in 1 2 3; do
 done
 
 $CTL off led2
-echo "Rainbow done!"
+echo "Радуга завершена!"

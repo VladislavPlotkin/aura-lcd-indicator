@@ -31,6 +31,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  lcd <text>                      Write text to LCD (full screen)\n")
 		fmt.Fprintf(os.Stderr, "  lcd-line <row> <text>           Write one line to LCD\n")
 		fmt.Fprintf(os.Stderr, "  blink <r,g,b> [times] [ms]      Blink indicator\n")
+		fmt.Fprintf(os.Stderr, "  spinner <text> [chars] [ms]     Animated spinner on LCD\n")
 		fmt.Fprintf(os.Stderr, "  author                          Show author info\n")
 		os.Exit(1)
 	}
@@ -55,6 +56,8 @@ func main() {
 		cmdLCDLine(args)
 	case "blink":
 		cmdBlink(args)
+	case "spinner":
+		cmdSpinner(args)
 	case "author":
 		cmdAuthor()
 	default:
@@ -191,19 +194,85 @@ func cmdOff(args []string) {
 	}
 }
 
+// padToCols обрезает строку до cols символов и дополняет пробелами справа.
+func padToCols(s string, cols int) string {
+	runes := []rune(s)
+	if len(runes) > cols {
+		runes = runes[:cols]
+	}
+	for len(runes) < cols {
+		runes = append(runes, ' ')
+	}
+	return string(runes)
+}
+
 func cmdLCD(args []string) {
-	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "Usage: aura-ctl lcd <text>\n")
+	raw := false
+	filtered := make([]string, 0, len(args))
+	for _, a := range args {
+		switch a {
+		case "--raw", "-r":
+			raw = true
+		default:
+			filtered = append(filtered, a)
+		}
+	}
+
+	if len(filtered) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: aura-ctl lcd [--raw <hex>] <text>\n")
 		os.Exit(1)
 	}
 
-	text := strings.Join(args, " ")
+	if raw {
+		// Raw-режим: аргумент(ы) — hex-коды CGROM (с пробелами или слитно).
+		// Например: aura-ctl lcd --raw "41 42 43"  или  aura-ctl lcd -r c0d0
+		hex := strings.Join(filtered, "")
+		codes, err := parseHexBytes(hex)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		_, err = aura.SendLCDRaw(codes, devicePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	text := strings.Join(filtered, " ")
+
+	// Явный перенос строки (\n) трактуем как разделитель строк LCD:
+	// "строка0\nстрока1" -> 32-символьная строка (16 + 16).
+	// Bash-демо передают уже готовую 32-символьную строку без \n,
+	// поэтому эта ветка их не затрагивает.
+	if strings.Contains(text, "\n") {
+		parts := strings.SplitN(text, "\n", 2)
+		text = padToCols(parts[0], aura.LCDCols) + padToCols(parts[1], aura.LCDCols)
+	}
 
 	_, err := aura.SendLCDText(text, -1, devicePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// parseHexBytes парсит hex-строку (с пробелами или без) в байты.
+func parseHexBytes(s string) ([]byte, error) {
+	s = strings.Join(strings.Fields(s), "")
+	if len(s)%2 != 0 {
+		return nil, fmt.Errorf("hex must have even length, got %d chars", len(s))
+	}
+	out := make([]byte, len(s)/2)
+	for i := 0; i < len(out); i++ {
+		v, err := strconv.ParseUint(s[2*i:2*i+2], 16, 8)
+		if err != nil {
+			return nil, fmt.Errorf("invalid hex at byte %d: %w", i, err)
+		}
+		out[i] = byte(v)
+	}
+	return out, nil
 }
 
 func cmdLCDLine(args []string) {
@@ -262,6 +331,56 @@ func cmdBlink(args []string) {
 		if i < times-1 {
 			time.Sleep(time.Duration(interval) * time.Millisecond)
 		}
+	}
+}
+
+// cmdSpinner — анимированный спиннер на LCD.
+// Использование: aura-ctl spinner <текст> [символы] [мсек]
+//
+//	text    — текст справа от спиннера
+//	chars   — символы спиннера (по умолчанию "/|\-")
+//	ms      — задержка между кадрами (по умолчанию 200)
+func cmdSpinner(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: aura-ctl spinner <text> [chars] [ms]\n")
+		os.Exit(1)
+	}
+
+	text := args[0]
+	spinnerChars := "/|\\-"
+	delay := 200
+
+	if len(args) > 1 {
+		spinnerChars = args[1]
+	}
+	if len(args) > 2 {
+		if ms, err := strconv.Atoi(args[2]); err == nil && ms > 0 {
+			delay = ms
+		}
+	}
+
+	runes := []rune(spinnerChars)
+	if len(runes) == 0 {
+		spinnerChars = "/|\\-"
+		runes = []rune(spinnerChars)
+	}
+
+	// Паддим текст до 15 символов (1 символ — спиннер)
+	textRunes := []rune(text)
+	if len(textRunes) > 15 {
+		textRunes = textRunes[:15]
+	}
+	padded := make([]rune, 15)
+	copy(padded, textRunes)
+	for i := len(textRunes); i < 15; i++ {
+		padded[i] = ' '
+	}
+
+	for i := 0; ; i++ {
+		ch := runes[i%len(runes)]
+		line := string(ch) + string(padded)
+		aura.SendLCDText(line, 0, devicePath)
+		time.Sleep(time.Duration(delay) * time.Millisecond)
 	}
 }
 

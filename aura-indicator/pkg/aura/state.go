@@ -13,7 +13,7 @@ const LCDLedCount = 32
 
 // State хранит объединённое состояние для канала led2:
 // Indicator — цвет LED0 (индикатор)
-// LCD — цвета LED1..LED32 (символы LCD)
+// LCD — индексы символов LED1..LED32 (R = индекс в LcdCgromTable, G=B=0)
 type State struct {
 	Indicator [3]byte     `json:"indicator"`
 	LCD       [32][3]byte `json:"lcd"`
